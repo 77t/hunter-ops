@@ -405,4 +405,1313 @@
         <p class="font-mono text-xs text-mute mb-2 tracking-wide">SYARAT & KETENTUAN</p>
         <p id="caseTerms" class="text-sm text-mute leading-relaxed"></p>
       </div>
-      <d
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bracket rounded-md p-3">
+          <p class="font-mono text-[10px] text-mute">RISIKO</p>
+          <p id="caseRisk" class="font-semibold text-sm mt-0.5"></p>
+        </div>
+        <div class="bracket rounded-md p-3">
+          <p class="font-mono text-[10px] text-mute">ESTIMASI HASIL</p>
+          <p id="caseEstimate" class="text-sm mt-0.5 leading-snug"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: KLAIM & DOKUMEN -->
+    <div id="caseTabKlaim" class="case-tab-panel space-y-4 hidden">
+      <div>
+        <p class="font-mono text-xs text-mute mb-2 tracking-wide">BUKTI PELAKSANAAN</p>
+        <div id="caseEvidenceList" class="space-y-2 mb-2"></div>
+        <div class="flex gap-2">
+          <input id="caseEvidenceInput" type="text" placeholder="Catatan bukti / tempel link…" class="flex-1 bg-panel2 border border-line rounded px-3 py-2.5 text-sm text-ink placeholder:text-mute focus:outline-none focus:border-flash">
+          <button id="caseEvidenceAddBtn" class="font-mono text-xs px-4 rounded bg-flash text-bg font-semibold shrink-0">TAMBAH</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-2">
+        <button id="caseDownloadPdfBtn" class="w-full font-mono text-sm font-semibold py-3 rounded bg-amber text-bg">🖨️ Cetak / Simpan sebagai PDF</button>
+        <a id="caseSubmitLinkBtn" href="#" target="_blank" rel="noopener" class="hidden w-full text-center font-mono text-sm font-semibold py-3 rounded border border-cyan text-cyan">🔗 Buka Halaman Submit Resmi</a>
+      </div>
+
+      <div>
+        <p class="font-mono text-xs text-mute mb-2 tracking-wide">CATAT HASIL AKHIR</p>
+        <div id="caseOutcomeButtons" class="flex gap-2">
+          <button data-outcome="berhasil" class="flex-1 font-mono text-sm py-2.5 rounded border border-green text-green hover:bg-green/10">✓ BERHASIL</button>
+          <button data-outcome="gagal" class="flex-1 font-mono text-sm py-2.5 rounded border border-red text-red hover:bg-red/10">✕ GAGAL</button>
+        </div>
+        <p id="caseOutcomeRecorded" class="hidden text-sm font-mono text-mute mt-2"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PRINT-ONLY REPORT (used by "Cetak / Simpan sebagai PDF") ============ -->
+<div id="printReport" class="hidden"></div>
+
+<!-- ============ MOBILE BOTTOM NAV ============ -->
+<nav id="navMobile" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-panel border-t border-line flex pb-[env(safe-area-inset-bottom)]"></nav>
+
+<script>
+(() => {
+  "use strict";
+
+  /* =========================================================
+     0. CONSTANTS / STATE
+  ========================================================= */
+  const TABS = [
+    { id: 'airdrops',  label: 'Crypto Airdrops',   short: 'Airdrops',  icon: '🎯', accent: 'amber' },
+    { id: 'bounties',  label: 'Bug Bounties',      short: 'Bounties',  icon: '🛡️', accent: 'cyan'  },
+    { id: 'fastclaim', label: 'Fast-Claim Alerts', short: 'Fast-Claim',icon: '⚡', accent: 'flash' },
+    { id: 'filter',    label: 'AI Filter',         short: 'Filter',    icon: '⚙️', accent: 'red'   },
+  ];
+
+  // Sub-category columns for the Fast-Claim Alerts tab.
+  const CATEGORY_META = {
+    uang:    { label: '💰 Uang Digital',      color: 'green' },
+    barang:  { label: '📦 Barang Fisik',      color: 'amber' },
+    voucher: { label: '🎟️ Voucher & Diskon',  color: 'cyan'  },
+    kreatif: { label: '🎨 Sayembara Kreatif', color: 'flash' },
+  };
+
+  const LS_KEYS = {
+    hidden:   'hunter_hidden_v1',
+    claimed:  'hunter_claimed_v1',
+    log:      'hunter_scamlog_v1',
+    settings: 'hunter_settings_v1',
+    fcFilter: 'hunter_fastclaim_filter_v1',
+    cases:    'hunter_cases_v1',
+    theme:    'hunter_theme_v1',
+    shipping: 'hunter_shipping_profile_v1',
+    userProfile: 'hunter_user_profile_v1',
+  };
+
+  const store = {
+    get(key, fallback) {
+      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+      catch (e) { return fallback; }
+    },
+    set(key, val) {
+      try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* storage full / disabled */ }
+    }
+  };
+
+  /* ---- Supabase (optional) ----
+     Isi url + anonKey setelah project Supabase Anda siap (dashboard →
+     Settings → API). "anon public" key ini AMAN ditaruh di client — beda
+     dari "service_role" key yang tidak boleh pernah dipakai di browser.
+     Kosongkan untuk tetap memakai Netlify Function / data demo seperti
+     sebelumnya; tidak akan ada error walau ini belum diisi. */
+  const SUPABASE_CONFIG = {
+    url: 'https://jnhctmeatpgfehqecxxt.supabase.co',
+    anonKey: 'sb_publishable_qH8oh9kwnjV5JZ2Q4Quvaw_yPKuKKWB',
+  };
+  const supabaseClient = (SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey && window.supabase)
+    ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
+    : null;
+
+  const state = {
+    tab: 'airdrops',
+    hidden:  store.get(LS_KEYS.hidden, []),
+    claimed: store.get(LS_KEYS.claimed, []),
+    log:     store.get(LS_KEYS.log, []),
+    settings: store.get(LS_KEYS.settings, { rewardCheck: true, threshold: 5000 }),
+    showHidden: { airdrops: false, bounties: false, fastclaim: false },
+    data: { airdrops: [], bounties: [], fastclaim: [] },
+    fastClaimFilter: store.get(LS_KEYS.fcFilter, 'all'),
+    phishSet: new Set(),
+    cases: store.get(LS_KEYS.cases, {}),
+    openCaseId: null,
+    theme: store.get(LS_KEYS.theme, 'dark'),
+    shippingProfile: store.get(LS_KEYS.shipping, { nama: '', alamat: '', hp: '' }),
+    userProfile: store.get(LS_KEYS.userProfile, { nama: '', hobi: '', kebiasaan: '', alasan: '' }),
+  };
+
+  const nowPlusHours = h => Date.now() + h * 3600 * 1000;
+  const fmtUSD = n => n == null ? '—' : '$' + Number(n).toLocaleString(undefined, {maximumFractionDigits: 2});
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  /* =========================================================
+     1. FALLBACK / SEED DATA
+     Clearly tagged demo:true — this is reference data shown ONLY
+     while a live source is unavailable, and the UI marks it as
+     DEMO so it is never mistaken for a verified live listing.
+  ========================================================= */
+  function seedAirdrops() {
+    return [
+      { id:'ad-1', title:'LayerZero-style Retro Points Program', source:'Community Aggregator', rewardUSD:180, unit:'Est. token value', deadline:nowPlusHours(58), task:'social_share', desc:'Bridge & interact with testnet, connect wallet read-only to check eligibility.', url:null, demo:true, requiresFee:false, requestsSeed:false, vcBacked:true, fundingUsd:135000000, investors:'Contoh ilustrasi — 2 dana ventura Tier-1 (belum diverifikasi ulang)' },
+      { id:'ad-2', title:'"Guaranteed" 10,000 USDT Giveaway', source:'unknown-airdrop-portal.xyz', rewardUSD:10000, unit:'USDT', deadline:nowPlusHours(6), task:'social_share', desc:'Retweet, join Telegram, and send a small 0.05 ETH "gas activation fee" to receive your reward.', url:null, demo:true, requiresFee:true, requestsSeed:false, vcBacked:false },
+      { id:'ad-3', title:'Wallet Verification Airdrop', source:'defi-claim-portal.net', rewardUSD:250, unit:'Tokens', deadline:nowPlusHours(30), task:'wallet_connect', desc:'To verify eligibility, enter your seed phrase into our checker tool.', url:null, demo:true, requiresFee:false, requestsSeed:true, vcBacked:false },
+      { id:'ad-4', title:'L2 Testnet Contributor Rewards', source:'Community Aggregator', rewardUSD:320, unit:'Est. token value', deadline:nowPlusHours(120), task:'testnet_use', desc:'Complete 5 testnet transactions and fill out the contributor form.', url:null, demo:true, requiresFee:false, requestsSeed:false, vcBacked:true, fundingUsd:8000000, investors:'Contoh ilustrasi — 1 dana ventura tahap awal' },
+      { id:'ad-5', title:'Share This Post & Earn $7,500', source:'crypto-hype-page', rewardUSD:7500, unit:'USD', deadline:nowPlusHours(3), task:'social_share', desc:'Simply repost and tag 3 friends to qualify for the grand reward pool.', url:null, demo:true, requiresFee:false, requestsSeed:false },
+      { id:'ad-6', title:'DEX Liquidity Provider Incentive', source:'Community Aggregator', rewardUSD:410, unit:'Est. token value', deadline:nowPlusHours(200), task:'lp_provide', desc:'Provide liquidity for 14 days to qualify for retroactive rewards.', url:null, demo:true, requiresFee:false, requestsSeed:false },
+    ];
+  }
+
+  function seedBounties() {
+    return [
+      { id:'bb-1', title:'Reflected XSS in Auth Flow', source:'HackerOne (reference)', rewardUSD:1500, unit:'USD', deadline:nowPlusHours(96), task:'vuln_report', desc:'Standard triage queue, requires a signed researcher agreement — no payment ever required from you.', url:null, demo:true, requiresFee:false, requestsSeed:false },
+      { id:'bb-2', title:'"Pay $50 Registration to Unlock Bounty Access"', source:'freebounty-hub.co', rewardUSD:3000, unit:'USD', deadline:nowPlusHours(48), task:'vuln_report', desc:'Pay a refundable $50 onboarding deposit to access our private bounty list.', url:null, demo:true, requiresFee:true, requestsSeed:false },
+      { id:'bb-3', title:'IDOR on Internal Billing Endpoint', source:'Bugcrowd (reference)', rewardUSD:2200, unit:'USD', deadline:nowPlusHours(140), task:'vuln_report', desc:'Requires proof-of-concept and responsible disclosure via the platform.', url:null, demo:true, requiresFee:false, requestsSeed:false },
+      { id:'bb-4', title:'Smart Contract Audit Sprint', source:'Immunefi (reference)', rewardUSD:12000, unit:'USD', deadline:nowPlusHours(240), task:'audit', desc:'Formal audit engagement for a DeFi vault contract, escrowed by the platform.', url:null, demo:true, requiresFee:false, requestsSeed:false },
+      { id:'bb-5', title:'"Verify Wallet With Seed Phrase To Claim Reward"', source:'sec-rewards-fast.io', rewardUSD:900, unit:'USD', deadline:nowPlusHours(20), task:'vuln_report', desc:'Enter your wallet seed phrase so we can transfer your bounty payout directly.', url:null, demo:true, requiresFee:false, requestsSeed:true },
+    ];
+  }
+
+  // Fast-Claim Alerts: mixed quick-win opportunities across 3 categories.
+  // Each item carries a `category` field (uang / barang / voucher) used by
+  // the sub-tab filter, and an optional `isSignupBonus` flag for the badge.
+  function seedFastClaim() {
+    return [
+      // 💰 UANG DIGITAL
+      { id:'fc-u1', title:'Bonus Saldo Rp50.000 Daftar Akun Baru — DompetKu App', source:'DompetKu (reference)', rewardUSD:3.2, unit:'Saldo E-Wallet', deadline:nowPlusHours(72), task:'signup_bonus', desc:'Bonus otomatis masuk setelah verifikasi nomor HP, tanpa biaya apapun.', url:null, demo:true, category:'uang', isSignupBonus:true, requiresFee:false, requestsSeed:false },
+      { id:'fc-u2', title:'Airdrop Instan 25 USDT ke Wallet', source:'Community Aggregator', rewardUSD:25, unit:'USDT', deadline:nowPlusHours(40), task:'wallet_connect', desc:'Connect wallet read-only untuk cek eligibility, klaim otomatis on-chain.', url:null, demo:true, category:'uang', requiresFee:false, requestsSeed:false },
+      { id:'fc-u3', title:'"Klaim Saldo Rp2.000.000" — Verifikasi Pakai Frasa Pemulihan', source:'saldo-gratis-cepat.info', rewardUSD:130, unit:'Saldo Digital', deadline:nowPlusHours(5), task:'signup_bonus', desc:'Masukkan frasa pemulihan (recovery phrase) dompet Anda untuk verifikasi kepemilikan sebelum saldo dicairkan.', url:null, demo:true, category:'uang', isSignupBonus:true, requiresFee:false, requestsSeed:true },
+
+      // 📦 BARANG FISIK
+      { id:'fc-b1', title:'Sampel Gratis Skincare — Cukup Isi Alamat', source:'Brand Sampling Program (reference)', rewardUSD:8, unit:'Produk Sample', deadline:nowPlusHours(96), task:'freebie_claim', desc:'Isi form alamat pengiriman, produk dikirim gratis, ongkos kirim ditanggung brand.', url:null, demo:true, category:'barang', requiresFee:false, requestsSeed:false },
+      { id:'fc-b2', title:'Giveaway Smartphone Flagship — Follow & Share', source:'Komunitas Giveaway (reference)', rewardUSD:900, unit:'Barang Elektronik', deadline:nowPlusHours(150), task:'social_share', desc:'Follow akun, share postingan, dan tag 3 teman untuk ikut undian resmi.', url:null, demo:true, category:'barang', requiresFee:false, requestsSeed:false },
+      { id:'fc-b3', title:'"Menangkan iPhone Gratis" — Bayar Ongkir Dulu', source:'giveaway-cepat-menang.com', rewardUSD:999, unit:'Barang Elektronik', deadline:nowPlusHours(8), task:'social_share', desc:'Anda terpilih sebagai pemenang! Bayar biaya ongkir Rp150.000 terlebih dahulu untuk proses pengiriman.', url:null, demo:true, category:'barang', requiresFee:true, requestsSeed:false },
+      { id:'fc-b4', title:'Harga Eror Marketplace — Headphone Rp10.000', source:'Info Diskon Komunitas (reference)', rewardUSD:5, unit:'Selisih Harga', deadline:nowPlusHours(3), task:'freebie_claim', desc:'Kesalahan input harga oleh penjual, berpotensi dibatalkan sepihak oleh marketplace — beli dengan risiko sendiri.', url:null, demo:true, category:'barang', requiresFee:false, requestsSeed:false },
+
+      // 🎟️ VOUCHER & DISKON
+      { id:'fc-v1', title:'Voucher Belanja Rp100.000 Min. Belanja Rp300.000', source:'Marketplace Resmi (reference)', rewardUSD:6.5, unit:'Voucher Belanja', deadline:nowPlusHours(60), task:'voucher_claim', desc:'Klaim langsung di halaman promo resmi aplikasi, tanpa kode rahasia atau biaya apapun.', url:null, demo:true, category:'voucher', requiresFee:false, requestsSeed:false },
+      { id:'fc-v2', title:'Kode Promo Flash Sale — Diskon 70%', source:'Marketplace Resmi (reference)', rewardUSD:15, unit:'Diskon Belanja', deadline:nowPlusHours(20), task:'voucher_claim', desc:'Kode otomatis aktif saat checkout pada jam flash sale, tidak perlu daftar di luar aplikasi.', url:null, demo:true, category:'voucher', requiresFee:false, requestsSeed:false },
+      { id:'fc-v3', title:'"Akses Premium Gratis Selamanya" — Daftar & Bayar Admin', source:'akses-gratis-premium.net', rewardUSD:120, unit:'Langganan Layanan', deadline:nowPlusHours(10), task:'voucher_claim', desc:'Bayar biaya admin Rp25.000 untuk aktivasi akses premium gratis selamanya.', url:null, demo:true, category:'voucher', isSignupBonus:true, requiresFee:true, requestsSeed:false },
+
+      // 🎨 SAYEMBARA KREATIF
+      { id:'fc-k1', title:'Lomba Desain Logo UMKM — Hadiah Rp3.000.000', source:'Komunitas UMKM (reference)', rewardUSD:195, unit:'Hadiah Tunai', deadline:nowPlusHours(168), task:'creative_contest', desc:'Peserta membuat logo sesuai brief, dikirim dalam format PNG resolusi tinggi + file sumber.', url:null, demo:true, category:'kreatif', requiresFee:false, requestsSeed:false },
+      { id:'fc-k2', title:'Lomba Menulis Esai Tema Lingkungan', source:'Dinas/Komunitas Lokal (reference)', rewardUSD:65, unit:'Hadiah Tunai', deadline:nowPlusHours(240), task:'creative_contest', desc:'Esai 500-800 kata, dikirim dalam format PDF/.docx sesuai template panitia.', url:null, demo:true, category:'kreatif', requiresFee:false, requestsSeed:false },
+
+      // 📦 PRODUCT TESTER (juga masuk kategori Barang Fisik)
+      { id:'fc-b5', title:'Program Tester Skincare Baru — Kuota 50 Orang', source:'Brand Kecantikan (reference)', rewardUSD:12, unit:'Produk Full Size', deadline:nowPlusHours(48), task:'product_tester', desc:'Isi survei kebiasaan skincare, terpilih dapat produk gratis untuk direview jujur.', url:null, demo:true, category:'barang', requiresFee:false, requestsSeed:false },
+      { id:'fc-b6', title:'Tester Snack Rasa Baru — Isi Survei Dulu', source:'Brand F&B (reference)', rewardUSD:4, unit:'Paket Snack', deadline:nowPlusHours(72), task:'product_tester', desc:'Survei kebiasaan ngemil, lolos verifikasi dapat kiriman paket snack gratis.', url:null, demo:true, category:'barang', requiresFee:false, requestsSeed:false },
+    ];
+  }
+
+  /* =========================================================
+     2. HUNTER ENGINE — live fetches with graceful fallback
+     These call real, public, no-key, CORS-open APIs. Most
+     dedicated "airdrop tracker" / "bounty program" APIs are
+     either paid or block browser CORS requests entirely, so
+     the demo data above fills that specific gap — but the
+     calls below are genuinely live network requests.
+  ========================================================= */
+  async function fetchLiveAirdropSignals() {
+    // CoinGecko trending search — public, free, no key, CORS-enabled.
+    const res = await fetch('https://api.coingecko.com/api/v3/search/trending');
+    if (!res.ok) throw new Error('CoinGecko trending: HTTP ' + res.status);
+    const json = await res.json();
+    const coins = (json.coins || []).slice(0, 6);
+    if (!coins.length) throw new Error('empty trending payload');
+    return coins.map((c, i) => ({
+      id: 'live-ad-' + c.item.id,
+      title: `${c.item.name} (${c.item.symbol.toUpperCase()}) — Ecosystem Watch`,
+      source: 'CoinGecko Trending (live)',
+      rewardUSD: null,
+      unit: `Rank #${c.item.market_cap_rank ?? '—'}`,
+      deadline: null,
+      task: 'market_signal',
+      desc: 'Currently trending — worth monitoring for related ecosystem incentive or points programs. Not a confirmed airdrop by itself.',
+      url: `https://www.coingecko.com/en/coins/${c.item.id}`,
+      demo: false, live: true,
+      requiresFee: false, requestsSeed: false,
+    }));
+  }
+
+  async function fetchLiveSecurityFeed() {
+    // GitHub public Security Advisories — public, free, no key, CORS-enabled for GET.
+    const res = await fetch('https://api.github.com/advisories?per_page=6', {
+      headers: { 'Accept': 'application/vnd.github+json' }
+    });
+    if (!res.ok) throw new Error('GitHub advisories: HTTP ' + res.status);
+    const json = await res.json();
+    if (!Array.isArray(json) || !json.length) throw new Error('empty advisories payload');
+    return json.slice(0, 6).map(a => ({
+      id: 'live-bb-' + a.ghsa_id,
+      title: (a.summary || a.ghsa_id || 'Security advisory').slice(0, 90),
+      source: 'GitHub Security Advisories (live)',
+      rewardUSD: null,
+      unit: (a.severity || 'unknown').toUpperCase(),
+      deadline: null,
+      task: 'advisory',
+      desc: 'Public disclosure feed for context — not a paid bounty listing on its own.',
+      url: a.html_url || 'https://github.com/advisories',
+      demo: false, live: true,
+      requiresFee: false, requestsSeed: false,
+    }));
+  }
+
+  // Fast-Claim Alerts live source, priority 1: Supabase table `listings`
+  // (see supabase/schema.sql). Real Postgres, works cross-device, and is
+  // the recommended path once you have a Supabase project — much nicer
+  // than the Google Sheets CSV hack below.
+  async function fetchFastClaimFromSupabase() {
+    if (!supabaseClient) throw new Error('Supabase belum dikonfigurasi (SUPABASE_CONFIG kosong)');
+    const { data, error } = await supabaseClient
+      .from('listings')
+      .select('*')
+      .eq('type', 'fastclaim')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw new Error('Supabase query gagal: ' + error.message);
+    if (!data || !data.length) throw new Error('Tabel listings kosong untuk type=fastclaim');
+    return data.map(row => ({
+      id: 'sb-' + row.id,
+      title: row.title,
+      source: row.source || 'Supabase (curated)',
+      rewardUSD: row.reward_usd != null ? Number(row.reward_usd) : null,
+      unit: row.unit || null,
+      deadline: row.deadline_iso ? Date.parse(row.deadline_iso) : (row.deadline_hours ? Date.now() + Number(row.deadline_hours) * 3600 * 1000 : null),
+      task: row.task || 'freebie_claim',
+      desc: row.description || '',
+      url: row.url || null,
+      category: (row.category || '').toLowerCase().trim() || null,
+      isSignupBonus: !!row.is_signup_bonus,
+      requiresFee: !!row.requires_fee,
+      requestsSeed: !!row.requests_seed,
+      vcBacked: row.vc_backed == null ? null : !!row.vc_backed,
+      fundingUsd: row.funding_usd != null ? Number(row.funding_usd) : null,
+      investors: row.investors || null,
+      demo: false, live: true,
+    }));
+  }
+
+  // Fast-Claim Alerts live source, priority 2 (fallback if Supabase isn't
+  // configured): a Netlify Function backed by a Google Sheet you curate yourself (columns include "Kategori": Uang / Barang /
+  // Diskon — see functions/SHEET_SETUP.md). If the function isn't deployed
+  // yet, or the sheet URL env var isn't set, this simply fails and the
+  // demo columns below fill the tab instead — same fallback pattern as
+  // the other two feeds.
+  async function fetchLiveFastClaim() {
+    const res = await fetch('/.netlify/functions/get-sheet-data?type=fastclaim');
+    if (!res.ok) throw new Error('get-sheet-data (fastclaim): HTTP ' + res.status);
+    const json = await res.json();
+    if (!Array.isArray(json) || !json.length) throw new Error('empty or missing sheet data');
+    return json.map(row => ({
+      ...row,
+      id: 'sheet-' + (row.id || row.title),
+      demo: false, live: true,
+    }));
+  }
+
+  /* =========================================================
+     3. SCAM FILTER ENGINE
+  ========================================================= */
+  const FEE_KEYWORDS = [
+    'gas activation fee', 'registration fee', 'unlock fee', 'small fee', 'deposit to', 'send us', 'pay a',
+    'activation fee', 'processing fee', 'refundable deposit', 'stake to unlock', 'shipping fee', 'pay shipping first',
+    // Indonesian phrasing — same red flags, different language.
+    'bayar ongkir', 'biaya ongkir', 'biaya admin', 'bayar dulu', 'dp dulu', 'biaya aktivasi', 'biaya verifikasi', 'transfer dulu',
+  ];
+  const SEED_KEYWORDS = [
+    'seed phrase', 'private key', 'recovery phrase', 'wallet secret', '12 words', '24 words',
+    // Indonesian phrasing.
+    'frasa pemulihan', 'kata sandi pemulihan', 'kunci pribadi', 'seed phrase dompet',
+  ];
+  const SIMPLE_TASKS = ['social_share', 'wallet_connect', 'signup_bonus', 'freebie_claim', 'voucher_claim', 'product_tester'];
+
+  // Well-known legitimate platform base-names, used to catch lookalike /
+  // typosquat domains (e.g. "hackerrone.com", "immunefi-claim.com").
+  const KNOWN_PLATFORMS = ['hackerone', 'bugcrowd', 'immunefi', 'coingecko', 'github', 'coinmarketcap', 'binance', 'metamask', 'opensea'];
+
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  function hostnameOf(url) {
+    try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); }
+    catch (e) { return null; }
+  }
+
+  /* ---- Live phishing-domain intelligence (PhishFort open blacklist) ----
+     PhishFort maintains a community-used, openly licensed list of confirmed
+     crypto-phishing domains, mirrored on jsDelivr (CORS-open CDN over the
+     public GitHub repo phishfort/phishfort-lists). We fetch the compact
+     "hotlist" (rolling ~3 months of detections) once per session and cache
+     it in localStorage for 6 hours so we don't re-fetch on every refresh. */
+  async function loadPhishList() {
+    const cacheKey = 'hunter_phishlist_v1';
+    const ttl = 6 * 3600 * 1000;
+    const cached = store.get(cacheKey, null);
+    if (cached && (Date.now() - cached.ts) < ttl) {
+      state.phishSet = new Set(cached.domains);
+      return;
+    }
+    try {
+      const res = await fetch('https://cdn.jsdelivr.net/gh/phishfort/phishfort-lists@master/blacklists/hotlist.json');
+      if (!res.ok) throw new Error('PhishFort hotlist: HTTP ' + res.status);
+      const domains = await res.json();
+      if (!Array.isArray(domains)) throw new Error('unexpected hotlist format');
+      state.phishSet = new Set(domains.map(d => String(d).toLowerCase()));
+      store.set(cacheKey, { ts: Date.now(), domains: [...state.phishSet] });
+    } catch (e) {
+      console.warn('PhishFort list unavailable, falling back to cached/empty list:', e.message);
+      state.phishSet = new Set(cached ? cached.domains : []);
+    }
+  }
+
+  function checkDomainReputation(url) {
+    const host = hostnameOf(url);
+    if (!host) return null;
+    if (state.phishSet && state.phishSet.has(host)) {
+      return `Destination domain "${host}" appears on the PhishFort crypto-phishing blacklist.`;
+    }
+    const base = host.split('.').slice(-2, -1)[0] || host;
+    for (const known of KNOWN_PLATFORMS) {
+      const dist = levenshtein(base, known);
+      if (dist > 0 && dist <= 2 && base !== known) {
+        return `Domain "${host}" looks like a lookalike of "${known}.com" (edit-distance ${dist}) — verify carefully before proceeding.`;
+      }
+    }
+    return null;
+  }
+
+  function scanForScam(item) {
+    const reasons = [];
+    const text = `${item.title} ${item.desc}`.toLowerCase();
+
+    if (item.requiresFee || FEE_KEYWORDS.some(k => text.includes(k))) {
+      reasons.push('Requests an upfront fee or deposit before paying out.');
+    }
+    if (item.requestsSeed || SEED_KEYWORDS.some(k => text.includes(k))) {
+      reasons.push('Asks for a seed phrase / private key — never legitimate.');
+    }
+    if (state.settings.rewardCheck && item.rewardUSD != null &&
+        SIMPLE_TASKS.includes(item.task) && item.rewardUSD > state.settings.threshold) {
+      reasons.push(`Reward of ${fmtUSD(item.rewardUSD)} is unrealistic for a simple ${item.task.replace('_',' ')} task (threshold: ${fmtUSD(state.settings.threshold)}).`);
+    }
+    if (item.url) {
+      const domainIssue = checkDomainReputation(item.url);
+      if (domainIssue) reasons.push(domainIssue);
+    }
+    return { blocked: reasons.length > 0, reasons };
+  }
+
+  function logScam(item, reasons) {
+    const exists = state.log.some(l => l.itemId === item.id && l.reasons.join('|') === reasons.join('|'));
+    if (exists) return;
+    state.log.unshift({ itemId: item.id, title: item.title, source: item.source, reasons, ts: Date.now() });
+    state.log = state.log.slice(0, 100);
+    store.set(LS_KEYS.log, state.log);
+  }
+
+  /* =========================================================
+     3.5 EXECUTION ENGINE — case, steps, evidence, risk, NBA
+     This is the "opportunity execution system" layer: every
+     listing gets a concrete execution plan (how to actually
+     pursue it + its terms), a persisted case tracking which
+     steps are done / what evidence was logged / what the final
+     outcome was, and a single rule-based "Next Best Action".
+
+     Important honesty note: the Next Best Action below is a
+     deterministic, rule-based recommender running entirely in
+     your browser — NOT a live call to an AI model. A static
+     Netlify page has nowhere safe to hold an API key for that,
+     and this decision tree is transparent and auditable, which
+     matters more here than a black-box suggestion would.
+  ========================================================= */
+  const EXECUTION_TEMPLATES = {
+    vuln_report: {
+      tools: [
+        'Browser DevTools (tab Network) — bawaan Chrome/Firefox, gratis.',
+        'Burp Suite Community Edition — proxy intercept request, resmi di portswigger.net/burp.',
+        'Screen recorder — OBS Studio (PC) atau perekam layar bawaan HP.',
+        'Akun uji/sandbox milik Anda sendiri — JANGAN PERNAH pakai atau menyentuh akun orang lain.',
+        'Aplikasi catatan untuk mendokumentasikan temuan secara real-time.',
+      ],
+      steps: [
+        'Baca halaman Scope & Policy program resmi (HackerOne/Bugcrowd/Immunefi) — catat persis domain/fitur apa saja yang BOLEH diuji. Di luar itu tetap ilegal walau programnya sendiri sah.',
+        'Login pakai akun uji milik Anda sendiri di sistem yang termasuk scope — jangan pernah menyentuh akun milik pengguna lain.',
+        'Nyalakan Burp Suite/ZAP sebagai proxy, arahkan trafik browser/app ke proxy tersebut.',
+        'MULAI rekam layar SEBELUM aksi pertama, agar video PoC utuh dari awal sampai akhir.',
+        'Lakukan alur fitur secara normal dulu (baseline) sambil proxy menangkap request aslinya.',
+        'Amati parameter di request (contoh: price, amount, quantity, user_id, balance) lewat proxy — catat nilai aslinya sebelum diubah.',
+        'Uji validasi server dengan mengubah nilai parameter HANYA dalam skenario yang masih di dalam scope & memakai akun/data milik Anda sendiri (mis. 2 akun uji sendiri) — cukup sampai bukti konsep terlihat, JANGAN menyelesaikan transaksi nyata yang merugikan pihak lain secara finansial.',
+        'Screenshot/catat response server yang menunjukkan validasi berhasil ditembus, sebagai bukti dampak.',
+        'HENTIKAN pengujian begitu dampak sudah terbukti — jangan mengambil/mengubah/mengunduh data lebih jauh dari yang diperlukan untuk PoC (data minimization).',
+        'MATIKAN rekaman, lalu segera submit laporan lewat platform resmi — jangan menunda atau membagikan temuan ke pihak ketiga mana pun.',
+      ],
+      terms: 'Ikuti rules of engagement program dengan ketat. Reward hanya cair setelah laporan divalidasi tim keamanan. "Safe harbor" (perlindungan hukum) HANYA berlaku untuk pengujian di dalam scope resmi & sesuai kebijakan program — di luar itu tetap bisa dikenai UU ITE/hukum setempat meski niatnya riset.',
+      risk: 'Sedang', estimate: 'Reward biasanya cair 2–8 minggu setelah validasi, tergantung kebijakan program.',
+    },
+    audit: {
+      tools: ['Checklist metodologi (mis. OWASP ASVS) sesuai kontrak/engagement.', 'Burp Suite / tool analisis statis sesuai jenis audit.', 'Screen recorder untuk dokumentasi proses jika klien mewajibkan.'],
+      steps: ['Konfirmasi ruang lingkup audit & kontrak/engagement resmi.', 'Lakukan analisis sesuai metodologi yang disepakati.', 'Susun laporan audit dengan temuan & rekomendasi.', 'Submit ke platform escrow resmi.'],
+      terms: 'Pembayaran biasanya lewat escrow platform, cair setelah laporan diterima klien.',
+      risk: 'Sedang', estimate: 'Nilai kontrak besar tapi siklus lebih panjang (beberapa minggu).',
+    },
+    social_share: {
+      tools: ['Screenshot tool bawaan HP.', 'Aplikasi media sosial resmi terkait program.'],
+      steps: ['Ikuti akun resmi & lakukan share/repost sesuai instruksi.', 'Simpan screenshot bukti share.', 'Isi form klaim (jika ada) dengan data yang benar.', 'Tunggu verifikasi/pengundian dari penyelenggara.'],
+      terms: 'Biasanya berbasis undian/kuota — tidak semua peserta menang. Tidak sah kalau ada syarat membayar untuk ikut serta.',
+      risk: 'Rendah', estimate: 'Peluang menang tergantung jumlah peserta; modal yang dipakai hanya waktu.',
+    },
+    signup_bonus: {
+      tools: ['Screenshot tool bawaan HP.', 'Nomor HP/email aktif untuk verifikasi.'],
+      steps: ['Daftar akun lewat link/aplikasi resmi.', 'Verifikasi nomor HP/email sesuai instruksi.', 'Cek saldo/bonus muncul otomatis di akun.', 'Screenshot bukti saldo sebagai dokumentasi.'],
+      terms: 'Bonus sah biasanya otomatis tanpa transfer dana apa pun dari Anda ke pihak manapun.',
+      risk: 'Rendah', estimate: 'Nilai kecil tapi cepat cair (menit–jam) kalau memang legit.',
+    },
+    wallet_connect: {
+      tools: ['Wallet crypto terpisah khusus testing (mis. MetaMask baru).', 'Block explorer (Etherscan/BscScan sesuai chain).', 'Screenshot/screen recorder bawaan HP.'],
+      steps: ['Gunakan wallet terpisah untuk cek eligibility, jangan wallet utama.', 'Connect read-only — jangan approve transaksi tak dikenal.', 'Cek status klaim di explorer/dashboard resmi proyek.', 'Klaim token jika eligible, simpan tx hash sebagai bukti.'],
+      terms: 'Airdrop sah tidak pernah minta seed phrase/private key. Approval transaksi tak terbatas berisiko mengosongkan wallet. Gunakan HANYA jumlah wallet yang diizinkan kebijakan resmi proyek (biasanya 1 per orang) — memakai banyak wallet untuk mengelabui sistem anti-Sybil adalah kecurangan dan berisiko SEMUA wallet Anda di-blacklist permanen dari proyek tsb.',
+      risk: 'Sedang', estimate: 'Nilai token bisa berubah signifikan pasca-listing, tidak dijamin stabil.',
+    },
+    freebie_claim: {
+      tools: ['Screenshot tool bawaan HP.', 'Data alamat pengiriman yang valid.'],
+      steps: ['Isi form data pengiriman dengan alamat valid.', 'Tunggu konfirmasi email/SMS dari brand.', 'Simpan bukti resi saat barang tiba.'],
+      terms: 'Kuota biasanya terbatas & first-come-first-served — legit tidak pernah minta bayar ongkir di depan.',
+      risk: 'Rendah', estimate: 'Barang fisik nilai kecil–menengah, waktu kirim 1–4 minggu.',
+    },
+    voucher_claim: {
+      tools: ['Screenshot tool bawaan HP.'],
+      steps: ['Klaim voucher langsung di halaman promo resmi aplikasi.', 'Cek syarat minimum belanja & masa berlaku sebelum checkout.', 'Screenshot voucher aktif sebagai bukti.'],
+      terms: 'Ada batas waktu & syarat transaksi minimum — legit tidak pernah minta kode OTP/verifikasi rahasia. Menyalahgunakan bug harga/diskon pada sistem produksi tanpa izin program resmi adalah penipuan, bukan bug bounty — dua hal ini berbeda.',
+      risk: 'Rendah', estimate: 'Penghematan langsung terlihat saat checkout, tanpa risiko modal.',
+    },
+    market_signal: {
+      tools: ['Aplikasi/portal pemantauan resmi proyek (situs resmi, akun X/Twitter resmi).'],
+      steps: ['Pantau perkembangan proyek ini secara berkala.', 'Cross-check dengan sumber resmi sebelum bertindak.', 'Belum ada langkah klaim langsung — ini sinyal pemantauan.'],
+      terms: 'Data pemantauan pasar murni, bukan jaminan adanya program reward.',
+      risk: 'Rendah', estimate: 'Tidak ada reward langsung — nilainya berupa informasi dini.',
+    },
+    advisory: {
+      tools: ['Sumber advisory resmi (GitHub Security Advisories, dsb).'],
+      steps: ['Baca detail advisory di sumber resminya.', 'Cek apakah proyek terkait punya program bounty aktif.', 'Pantau untuk konteks keamanan, bukan klaim langsung.'],
+      terms: 'Feed konteks keamanan publik, bukan listing bounty berbayar dengan sendirinya.',
+      risk: 'Rendah', estimate: 'Nilai berupa informasi, bukan reward finansial langsung.',
+    },
+    testnet_use: {
+      tools: ['Wallet testnet terpisah.', 'Faucet testnet resmi untuk gas fee.', 'Screenshot/screen recorder bawaan HP.'],
+      steps: ['Setup wallet testnet terpisah.', 'Selesaikan interaksi/transaksi yang diminta program.', 'Simpan bukti (tx hash / screenshot) sepanjang proses.', 'Isi form kontributor jika tersedia.'],
+      terms: 'Retroactive reward tidak dijamin — kebijakan bisa berubah sepihak oleh proyek.',
+      risk: 'Sedang', estimate: 'Potensi reward token, nilai tidak pasti sampai token benar listing.',
+    },
+    lp_provide: {
+      tools: ['Wallet dengan dana yang SUDAH siap Anda relakan risikonya.', 'Kalkulator impermanent loss (cari di situs resmi platform DeFi terkait).'],
+      steps: ['Pahami risiko impermanent loss sebelum menyetor dana.', 'Setor likuiditas sesuai jumlah yang sanggup Anda tanggung risikonya.', 'Simpan bukti transaksi & pantau posisi secara berkala.'],
+      terms: 'ADA RISIKO MODAL — ini bukan tugas gratis seperti kategori lain. Rugi berpotensi terjadi walau tanpa hack/scam.',
+      risk: 'Tinggi', estimate: 'Reward tambahan token, tapi modal pokok bisa berkurang nilainya.',
+    },
+    creative_contest: {
+      tabLabels: { alat: 'Info<br>Kontes', poc: 'Workshop<br>AI', klaim: 'Hasil &amp;<br>Unduh' },
+      tools: ['Info lengkap kontes: tema, syarat format, batas kata/ukuran, deadline, dari halaman resmi penyelenggara.', 'Software desain (Canva/Figma) kalau bikin logo/visual sendiri.', 'Aplikasi pengolah kata untuk draf naskah/esai.'],
+      steps: [
+        'Baca syarat & ketentuan kontes sampai tuntas — format file, batas kata/resolusi, dan aturan hak cipta karya.',
+        'Tentukan konsep/tema sesuai brief penyelenggara.',
+        'Buat draf awal di tab Workshop AI — isi poin-poin ide Anda, AI membantu menyusun kerangka naskah/esai (bukan menggantikan ide Anda).',
+        'Revisi draf sampai sesuai brief & gaya Anda sendiri — cek jangan sampai mirip karya orang lain.',
+        'Ekspor file final sesuai format yang diminta penyelenggara (.docx/PDF untuk naskah, gambar resolusi tinggi untuk logo/desain).',
+        'Submit ke penyelenggara sebelum deadline, simpan bukti pengiriman (email/screenshot).',
+      ],
+      terms: 'Setiap kontes punya aturan hak cipta berbeda — cek apakah karya yang dikirim otomatis jadi milik penyelenggara. AI di tab Workshop hanya membantu MENYUSUN draf dari ide Anda sendiri, bukan mengarang dari nol — dan sejumlah kontes melarang karya AI generatif sepenuhnya, jadi selalu cek dulu sebelum submit.',
+      risk: 'Rendah', estimate: 'Peluang menang tergantung jumlah peserta & kualitas karya — tidak ada jaminan menang.',
+    },
+    product_tester: {
+      tabLabels: { alat: 'Persiapan', poc: 'Isi Survei', klaim: 'Kirim &amp;<br>Pantau' },
+      tools: ['Profil "Data Saya" (isi sekali di tab ⚙️ Filter, dipakai ulang) — hobi, kebiasaan pakai produk sejenis, alasan tertarik.', 'Email aktif untuk menerima undangan tester.'],
+      steps: [
+        'Baca kriteria peserta yang dicari brand (usia, domisili, kebiasaan pemakaian, dsb).',
+        'Lengkapi profil "Data Saya untuk Draf Survei" di tab ⚙️ Filter kalau belum.',
+        'Buka tab Isi Survei — pakai draf otomatis sebagai KERANGKA jawaban, lalu EDIT setiap kalimat agar sesuai kondisi Anda yang sebenarnya.',
+        'Submit form pendaftaran tester lewat halaman resmi brand.',
+        'Tunggu email konfirmasi — kalau terpilih biasanya ada instruksi lanjutan (alamat kirim, cara review).',
+      ],
+      terms: 'Draf jawaban disusun dari data yang ANDA isi sendiri, bukan karangan otomatis — mengisi survei dengan jawaban yang tidak jujur berisiko akun Anda diblokir permanen oleh brand begitu ketahuan.',
+      risk: 'Rendah', estimate: 'Kuota tester biasanya sangat terbatas, tidak semua pendaftar dipilih.',
+    },
+  };
+  const DEFAULT_TABLABELS = { alat: 'Persiapan<br>Alat', poc: 'Rekaman<br>PoC', klaim: 'Klaim &amp;<br>Dokumen' };
+  const DEFAULT_TEMPLATE = {
+    tools: ['Screenshot tool bawaan HP.', 'Aplikasi catatan untuk mendokumentasikan proses.'],
+    steps: ['Baca deskripsi & sumber listing dengan teliti.', 'Verifikasi keaslian sumber sebelum bertindak.', 'Kumpulkan bukti selama proses pengerjaan.'],
+    terms: 'Belum ada template khusus untuk jenis tugas ini — tetap terapkan kehati-hatian standar (jangan pernah bayar di muka atau bagikan seed phrase).',
+    risk: 'Sedang', estimate: 'Estimasi tidak tersedia untuk jenis tugas ini.',
+  };
+
+  function getExecutionPlan(item) {
+    const plan = EXECUTION_TEMPLATES[item.task] || DEFAULT_TEMPLATE;
+    return { tabLabels: DEFAULT_TABLABELS, ...plan };
+  }
+
+  // Official submission destination for the "Klaim & Dokumen" tab. Prefers
+  // the listing's own URL; otherwise falls back to a known platform
+  // homepage (never a guessed sub-path, so the link is always correct).
+  function getPlatformLink(item) {
+    if (item.url) return { label: 'Buka Link Listing / Submission', url: item.url };
+    const src = (item.source || '').toLowerCase();
+    if (src.includes('hackerone')) return { label: 'Buka HackerOne', url: 'https://hackerone.com' };
+    if (src.includes('bugcrowd')) return { label: 'Buka Bugcrowd', url: 'https://www.bugcrowd.com' };
+    if (src.includes('immunefi')) return { label: 'Buka Immunefi', url: 'https://immunefi.com' };
+    return null;
+  }
+
+  /* ---- Legitimacy Score (Mode Crypto Airdrop Profesional) ----
+     Skor sederhana & transparan berbasis data pendanaan VC yang di-input
+     manual (lewat Supabase/demo), BUKAN skor "AI" — supaya bisa Anda
+     audit sendiri kenapa suatu skor keluar. null = data pendanaan belum
+     tersedia untuk item ini (bukan berarti scam). */
+  function computeLegitimacyScore(item) {
+    if (item.vcBacked == null) return null;
+    let score = 40;
+    if (item.vcBacked) score += 30;
+    if (item.fundingUsd) {
+      if (item.fundingUsd >= 50000000) score += 20;
+      else if (item.fundingUsd >= 5000000) score += 12;
+      else score += 5;
+    }
+    if (item.live) score += 10;
+    return Math.max(0, Math.min(100, score));
+  }
+
+  function saveShippingProfile(data) { state.shippingProfile = data; store.set(LS_KEYS.shipping, data); }
+  function saveUserProfile(data) { state.userProfile = data; store.set(LS_KEYS.userProfile, data); }
+
+  // Mode Flash Sale & Product Tester: "Alat" tab tambahan — data pengiriman
+  // tersimpan untuk COPY-PASTE MANUAL (bukan auto-submit ke mana pun) +
+  // pengingat notifikasi menjelang waktu mulai.
+  function renderAlatExtra(item, plan) {
+    const el = document.getElementById('caseAlatExtra');
+    const parts = [];
+
+    if (item.task === 'freebie_claim' || item.task === 'voucher_claim' || item.task === 'product_tester') {
+      const p = state.shippingProfile;
+      parts.push(`
+        <div class="bracket rounded-md p-3 space-y-2 mt-2">
+          <p class="font-mono text-xs text-mute tracking-wide">📦 DATA PENGIRIMAN SAYA (tersimpan di HP, untuk copy-paste manual)</p>
+          <input data-shipping-field="nama" value="${esc(p.nama)}" placeholder="Nama lengkap" class="w-full bg-panel2 border border-line rounded px-3 py-2 text-sm">
+          <input data-shipping-field="hp" value="${esc(p.hp)}" placeholder="No. HP" class="w-full bg-panel2 border border-line rounded px-3 py-2 text-sm">
+          <textarea data-shipping-field="alamat" placeholder="Alamat lengkap" rows="2" class="w-full bg-panel2 border border-line rounded px-3 py-2 text-sm">${esc(p.alamat)}</textarea>
+          <p class="text-[11px] text-mute">Tersimpan otomatis. Salin manual ke form checkout — aplikasi ini TIDAK mengirim data ini ke mana pun.</p>
+        </div>`);
+      if (item.deadline) {
+        parts.push(`<button id="caseNotifyBtn" data-deadline="${item.deadline}" class="w-full font-mono text-xs py-2.5 rounded border border-amber text-amber mt-2">🔔 Ingatkan 5 Menit Sebelum Mulai</button>`);
+      }
+    }
+
+    if (item.task === 'wallet_connect' || item.task === 'testnet_use') {
+      const score = computeLegitimacyScore(item);
+      const scoreColor = score == null ? 'text-mute' : score >= 70 ? 'text-green' : score >= 45 ? 'text-amber' : 'text-red';
+      parts.push(`
+        <div class="bracket cyan rounded-md p-3 mt-2">
+          <p class="font-mono text-xs text-mute tracking-wide mb-1">🛡️ LEGITIMACY SCORE (berbasis pendanaan VC)</p>
+          <p class="font-mono text-2xl font-bold ${scoreColor}">${score == null ? 'N/A' : score + '/100'}</p>
+          <p class="text-xs text-mute mt-1">${score == null ? 'Data pendanaan belum tersedia untuk proyek ini — bukan berarti scam, cek manual dulu.' : (item.vcBacked ? `Didukung investor: ${esc(item.investors || 'terverifikasi')}${item.fundingUsd ? ` · Total dana: ${fmtUSD(item.fundingUsd)}` : ''}` : 'Belum ditemukan pendanaan VC terverifikasi untuk proyek ini — bukan otomatis scam, tapi lebih berisiko.')}</p>
+        </div>`);
+    }
+
+    el.innerHTML = parts.join('');
+  }
+
+  // Mode Sayembara Kreatif & Product Tester: "PoC" tab tambahan — Workshop
+  // AI (draf naskah lewat fungsi server, opsional) & draf jawaban survei
+  // (template dari profil yang Anda isi sendiri, bukan karangan otomatis).
+  function renderPocExtra(item, plan) {
+    const el = document.getElementById('casePocExtra');
+
+    if (item.task === 'creative_contest') {
+      el.innerHTML = `
+        <div class="bracket flash rounded-md p-3 space-y-2">
+          <p class="font-mono text-xs text-mute tracking-wide">✨ WORKSHOP AI — bantu susun draf dari ide Anda</p>
+          <textarea id="creativeIdeaInput" placeholder="Tulis poin-poin ide Anda di sini (tema, pesan utama, gaya bahasa)…" rows="3" class="w-full bg-panel2 border border-line rounded px-3 py-2 text-sm"></textarea>
+          <button id="creativeGenerateBtn" class="w-full font-mono text-xs py-2.5 rounded bg-flash text-bg font-semibold">✨ Susun Draf dengan AI</button>
+          <textarea id="creativeDraftOutput" placeholder="Draf hasil AI akan muncul di sini — edit bebas sebelum dipakai…" rows="6" class="w-full bg-panel2 border border-line rounded px-3 py-2 text-sm"></textarea>
+          <p id="creativeStatus" class="text-[11px] text-mute"></p>
+        </div>`;
+    } else if (item.task === 'product_tester') {
+      const p = state.userProfile;
+      const complete = p.nama && p.hobi && p.kebiasaan;
+      el.innerHTML = `
+        <div class="bracket flash rounded-md p-3 space-y-2">
+          <p class="font-mono text-xs text-mute tracking-wide">📝 DRAF JAWABAN SURVEI (dari profil Anda di tab ⚙️ Filter)</p>
+          ${complete
+            ? `<button id="surveyGenerateBtn" class="w-full font-mono text-xs py-2.5 rounded bg-flash text-bg font-semibold">📝 Buat Draf dari Profil Saya</button>
+               <textarea id="surveyDraftOutput" placeholder="Draf akan muncul di sini — EDIT agar sesuai kenyataan sebelum dikirim…" rows="6" class="w-full bg-panel2 border border-line rounded px-3 py-2 text-sm"></textarea>`
+            : `<p class="text-sm text-mute">Lengkapi dulu profil "Data Saya untuk Draf Survei" di tab ⚙️ Filter (nama, hobi, kebiasaan pakai produk) supaya draf bisa dibuat.</p>`}
+        </div>`;
+    } else {
+      el.innerHTML = '';
+    }
+  }
+
+  function getCase(id) {
+    return state.cases[id] || { itemTitle: '', steps: [], evidence: [], outcome: null };
+  }
+  function ensureCaseShape(id, plan, item) {
+    const c = { ...getCase(id) };
+    if (!Array.isArray(c.steps) || c.steps.length !== plan.steps.length) {
+      const old = Array.isArray(c.steps) ? c.steps : [];
+      c.steps = plan.steps.map((_, i) => !!old[i]);
+    }
+    c.itemTitle = item.title;
+    c.evidence = Array.isArray(c.evidence) ? c.evidence : [];
+    return c;
+  }
+  function saveCase(id, caseObj) {
+    state.cases[id] = caseObj;
+    store.set(LS_KEYS.cases, state.cases);
+  }
+
+  function computeNBA(item, plan, caseObj, blocked) {
+    if (blocked) return { text: 'Jangan dilanjutkan — indikasi penipuan sudah terverifikasi filter. Abaikan & laporkan.', tone: 'red' };
+    if (caseObj.outcome) return { text: `Kasus sudah dicatat sebagai "${caseObj.outcome.status.toUpperCase()}". Alihkan fokus ke peluang lain.`, tone: 'green' };
+    const idx = caseObj.steps.findIndex(s => !s);
+    if (idx !== -1) return { text: `Langkah berikutnya: ${plan.steps[idx]}`, tone: 'flash' };
+    if (!caseObj.evidence.length) return { text: 'Semua langkah selesai — tambahkan bukti pelaksanaan sebelum mencatat hasil akhir.', tone: 'amber' };
+    return { text: 'Bukti sudah lengkap — pantau status balasan, lalu catat hasil akhirnya (berhasil/gagal).', tone: 'amber' };
+  }
+
+  function caseProgress(id) {
+    const c = state.cases[id];
+    if (!c) return null;
+    const total = c.steps.length;
+    const done = c.steps.filter(Boolean).length;
+    return { done, total, hasEvidence: c.evidence.length > 0, outcome: c.outcome };
+  }
+
+  /* =========================================================
+     4. RENDER
+  ========================================================= */
+  function timeLeft(deadline) {
+    if (!deadline) return null;
+    const diff = deadline - Date.now();
+    if (diff <= 0) return 'EXPIRED';
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    return `${String(d).padStart(2,'0')}:${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+
+  function cardHTML(item, accent) {
+    const { blocked, reasons } = scanForScam(item);
+    if (blocked) logScam(item, reasons);
+
+    const isHidden = state.hidden.includes(item.id);
+    if (isHidden && !state.showHidden[item.tabId]) return '';
+
+    const isClaimed = state.claimed.includes(item.id);
+    const badge = blocked
+      ? `<span class="font-mono text-[11px] px-2 py-1 rounded border border-red text-red">HIGH RISK</span>`
+      : item.live
+        ? `<span class="font-mono text-[11px] px-2 py-1 rounded border border-green text-green flex items-center gap-1"><span class="dot-live"></span>LIVE</span>`
+        : `<span class="font-mono text-[11px] px-2 py-1 rounded border border-${accent} text-${accent}">VALID · DEMO</span>`;
+    const categoryChip = item.category && CATEGORY_META[item.category]
+      ? `<span class="font-mono text-[11px] px-2 py-1 rounded border border-${CATEGORY_META[item.category].color} text-${CATEGORY_META[item.category].color}">${CATEGORY_META[item.category].label}</span>`
+      : '';
+    const signupChip = item.isSignupBonus
+      ? `<span class="font-mono text-[11px] px-2 py-1 rounded border border-flash text-flash">🆕 SIGN-UP BONUS</span>`
+      : '';
+    const progress = caseProgress(item.id);
+    const progressChip = progress
+      ? (progress.outcome
+          ? `<span class="font-mono text-[11px] px-2 py-1 rounded border ${progress.outcome.status === 'berhasil' ? 'border-green text-green' : 'border-red text-red'}">${progress.outcome.status === 'berhasil' ? '✓ SELESAI' : '✕ GAGAL'}</span>`
+          : `<span class="font-mono text-[11px] px-2 py-1 rounded border border-flash text-flash">📋 ${progress.done}/${progress.total}</span>`)
+      : '';
+
+    const countdown = item.deadline
+      ? `<div class="font-mono text-base text-ink/90">⏱ <span data-countdown="${item.deadline}">${timeLeft(item.deadline)}</span></div>`
+      : `<div class="font-mono text-sm text-mute flex items-center gap-1.5"><span class="dot-live"></span>MONITOR — no fixed deadline</div>`;
+
+    let btnLabel, btnClasses, btnAttrs;
+    if (blocked) {
+      btnLabel = 'BLOCKED — SCAM';
+      btnClasses = 'bg-red/10 text-red border border-red cursor-not-allowed';
+      btnAttrs = 'disabled';
+    } else if (isClaimed) {
+      btnLabel = 'CLAIMED ✓';
+      btnClasses = 'bg-green/10 text-green border border-green cursor-default';
+      btnAttrs = 'disabled';
+    } else {
+      btnLabel = item.live ? 'VIEW SOURCE' : 'CLAIM / EXECUTE';
+      btnClasses = `bg-${accent} text-bg hover:opacity-90 active:scale-[0.98]`;
+      btnAttrs = `data-action="claim" data-id="${item.id}" data-url="${esc(item.url || '')}"`;
+    }
+
+    return `
+    <div class="bracket ${accent} ${blocked ? 'opacity-70' : ''} rounded-md p-4 flex flex-col gap-3" data-card-id="${item.id}">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex flex-wrap gap-1.5">${badge}${categoryChip}${signupChip}${progressChip}</div>
+        <button data-action="hide" data-id="${item.id}" class="text-mute hover:text-ink text-base leading-none shrink-0" title="Hide">✕</button>
+      </div>
+      <div>
+        <h3 class="font-head font-bold text-base leading-snug">${esc(item.title)}</h3>
+        <p class="font-mono text-xs text-mute mt-1">${esc(item.source)}</p>
+      </div>
+      <p class="text-sm text-mute leading-relaxed line-clamp-2">${esc(item.desc)}</p>
+      <div class="flex items-center justify-between font-mono text-base">
+        <span class="text-${accent} font-semibold">${item.rewardUSD != null ? fmtUSD(item.rewardUSD) : (item.unit || '—')}</span>
+        ${item.rewardUSD != null && item.unit ? `<span class="text-mute text-xs">${esc(item.unit)}</span>` : ''}
+      </div>
+      ${countdown}
+      ${blocked ? `<p class="text-xs text-red font-mono leading-relaxed">⚠ ${esc(reasons[0])}</p>` : ''}
+      <button ${btnAttrs} class="mt-1 w-full font-mono text-sm font-semibold tracking-wide py-3 rounded ${btnClasses} transition">${btnLabel}</button>
+      <button data-action="case" data-id="${item.id}" class="w-full font-mono text-xs text-mute border border-line rounded py-2.5 hover:text-ink hover:border-flash transition">🗂️ Kelola Kasus &amp; Bukti</button>
+    </div>`;
+  }
+
+  function renderGrid(tabId, accent) {
+    const el = document.getElementById('grid-' + tabId);
+    let items = state.data[tabId].map(i => ({ ...i, tabId }));
+    if (tabId === 'fastclaim' && state.fastClaimFilter !== 'all') {
+      items = items.filter(i => i.category === state.fastClaimFilter);
+    }
+    const html = items.map(i => cardHTML(i, typeof accent === 'function' ? accent(i) : accent)).join('');
+    el.innerHTML = html || `<p class="col-span-full text-sm text-mute font-mono py-10 text-center">No listings to show right now.</p>`;
+    const hiddenCount = state.data[tabId].filter(i => state.hidden.includes(i.id)).length;
+    const counter = document.getElementById('hiddenCount' + tabId[0].toUpperCase() + tabId.slice(1));
+    if (counter) counter.textContent = hiddenCount;
+    renderScamLog();
+  }
+
+  function fastClaimAccent(item) {
+    return (item.category && CATEGORY_META[item.category]) ? CATEGORY_META[item.category].color : 'flash';
+  }
+
+  function renderFastClaimFilters() {
+    const el = document.getElementById('fastClaimFilters');
+    const options = [{ id: 'all', label: 'Semua', color: 'flash' }, ...Object.entries(CATEGORY_META).map(([id, m]) => ({ id, label: m.label, color: m.color }))];
+    el.innerHTML = options.map(o => {
+      const active = state.fastClaimFilter === o.id;
+      return `<button data-fc-filter="${o.id}" class="subtab shrink-0 font-mono text-xs px-3 py-1.5 rounded-full border ${active ? `bg-${o.color}/15 border-${o.color} text-${o.color}` : 'border-line text-mute hover:text-ink'}">${o.label}</button>`;
+    }).join('');
+  }
+
+  function renderAllGrids() {
+    renderGrid('airdrops', 'amber');
+    renderGrid('bounties', 'cyan');
+    renderGrid('fastclaim', fastClaimAccent);
+  }
+
+  function renderScamLog() {
+    const el = document.getElementById('scamLog');
+    document.getElementById('scamLogCount').textContent = state.log.length;
+    if (!state.log.length) {
+      el.innerHTML = `<p class="text-sm text-mute font-mono py-6 text-center border border-dashed border-line rounded">No scams caught yet — clean feed.</p>`;
+      return;
+    }
+    el.innerHTML = state.log.slice(0, 30).map(l => `
+      <div class="bracket red rounded-md p-3">
+        <div class="flex items-center justify-between gap-2">
+          <p class="font-medium text-sm">${esc(l.title)}</p>
+          <span class="font-mono text-[10px] text-mute">${new Date(l.ts).toLocaleString()}</span>
+        </div>
+        <p class="font-mono text-xs text-mute mt-1">${esc(l.source)}</p>
+        <ul class="mt-2 space-y-1">
+          ${l.reasons.map(r => `<li class="text-xs text-red font-mono">⚠ ${esc(r)}</li>`).join('')}
+        </ul>
+      </div>`).join('');
+  }
+
+  /* =========================================================
+     4.5 CASE MODAL — the actual "execution system" UI
+  ========================================================= */
+  function findItemById(id) {
+    return state.data.airdrops.find(i => i.id === id)
+      || state.data.bounties.find(i => i.id === id)
+      || state.data.fastclaim.find(i => i.id === id)
+      || null;
+  }
+
+  const NBA_TONE_CLASSES = {
+    red:   'border-red text-red bg-red/10',
+    green: 'border-green text-green bg-green/10',
+    amber: 'border-amber text-amber bg-amber/10',
+    flash: 'border-flash text-flash bg-flash/10',
+  };
+
+  function renderCaseModal() {
+    const item = findItemById(state.openCaseId);
+    if (!item) return;
+    const plan = getExecutionPlan(item);
+    const caseObj = ensureCaseShape(item.id, plan, item);
+    saveCase(item.id, caseObj);
+    const { blocked } = scanForScam(item);
+
+    document.getElementById('caseTag').textContent = `${item.source} · ${item.category ? CATEGORY_META[item.category]?.label : item.task}`;
+    document.getElementById('caseTitle').textContent = item.title;
+    document.getElementById('caseTabBtnAlatLabel').innerHTML = plan.tabLabels.alat;
+    document.getElementById('caseTabBtnPocLabel').innerHTML = plan.tabLabels.poc;
+    document.getElementById('caseTabBtnKlaimLabel').innerHTML = plan.tabLabels.klaim;
+
+    const nba = computeNBA(item, plan, caseObj, blocked);
+    const nbaEl = document.getElementById('caseNBA');
+    nbaEl.className = `rounded-md p-3 border ${NBA_TONE_CLASSES[nba.tone]}`;
+    nbaEl.innerHTML = `<p class="font-mono text-[10px] tracking-wide mb-1 opacity-80">⚡ NEXT BEST ACTION</p><p class="text-sm font-medium leading-relaxed">${esc(nba.text)}</p>`;
+
+    renderAlatExtra(item, plan);
+    renderPocExtra(item, plan);
+
+    // Tab 1: Persiapan Alat
+    document.getElementById('caseTools').innerHTML = plan.tools.map(tool => `
+      <div class="flex items-start gap-2.5 text-sm">
+        <span class="text-flash shrink-0 mt-0.5">🧰</span>
+        <span class="leading-relaxed">${esc(tool)}</span>
+      </div>`).join('');
+
+    // Tab 2: Panduan Rekaman PoC
+    document.getElementById('caseSteps').innerHTML = plan.steps.map((step, idx) => `
+      <label class="flex items-start gap-2.5 text-sm ${caseObj.steps[idx] ? 'text-mute line-through' : 'text-ink'} cursor-pointer">
+        <input type="checkbox" data-step-idx="${idx}" ${caseObj.steps[idx] ? 'checked' : ''} class="mt-1 w-4 h-4 accent-flash shrink-0">
+        <span class="leading-relaxed">Langkah ${idx + 1}: ${esc(step)}</span>
+      </label>`).join('');
+    document.getElementById('caseTerms').textContent = plan.terms;
+    document.getElementById('caseRisk').textContent = plan.risk;
+    document.getElementById('caseRisk').className = 'font-semibold text-sm mt-0.5 ' + (plan.risk === 'Tinggi' ? 'text-red' : plan.risk === 'Sedang' ? 'text-amber' : 'text-green');
+    document.getElementById('caseEstimate').textContent = plan.estimate;
+
+    // Tab 3: Klaim & Dokumen
+    document.getElementById('caseEvidenceList').innerHTML = caseObj.evidence.length
+      ? caseObj.evidence.map(ev => `<div class="bracket rounded-md p-2.5 text-sm"><p>${esc(ev.text)}</p><p class="font-mono text-[10px] text-mute mt-1">${new Date(ev.ts).toLocaleString()}</p></div>`).join('')
+      : `<p class="text-sm text-mute font-mono">Belum ada bukti ditambahkan.</p>`;
+
+    const submitBtn = document.getElementById('caseSubmitLinkBtn');
+    const platformLink = getPlatformLink(item);
+    if (platformLink) {
+      submitBtn.href = platformLink.url;
+      submitBtn.textContent = `🔗 ${platformLink.label}`;
+      submitBtn.classList.remove('hidden');
+    } else {
+      submitBtn.classList.add('hidden');
+    }
+
+    const outcomeButtons = document.getElementById('caseOutcomeButtons');
+    const outcomeRecorded = document.getElementById('caseOutcomeRecorded');
+    if (caseObj.outcome) {
+      outcomeButtons.classList.add('hidden');
+      outcomeRecorded.classList.remove('hidden');
+      outcomeRecorded.textContent = `Dicatat sebagai "${caseObj.outcome.status.toUpperCase()}" pada ${new Date(caseObj.outcome.ts).toLocaleString()}.`;
+    } else {
+      outcomeButtons.classList.remove('hidden');
+      outcomeRecorded.classList.add('hidden');
+    }
+  }
+
+  function switchCaseTab(tab) {
+    state.caseModalTab = tab;
+    document.querySelectorAll('.case-tab-panel').forEach(p => p.classList.add('hidden'));
+    document.getElementById('caseTab' + tab[0].toUpperCase() + tab.slice(1)).classList.remove('hidden');
+    document.querySelectorAll('.case-tab-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-case-tab') === tab));
+  }
+
+  // Builds the printable report and opens the browser's print dialog — on
+  // Android/desktop Chrome, choosing "Save as PDF" as the printer produces
+  // a real PDF file. This is standard browser print-to-PDF, not a
+  // programmatic PDF library — worth being precise about since it's not
+  // magic, just the browser doing what it already does for any page.
+  function downloadCaseReport() {
+    const item = findItemById(state.openCaseId);
+    if (!item) return;
+    const plan = getExecutionPlan(item);
+    const caseObj = getCase(item.id);
+    const now = new Date().toLocaleString();
+
+    const html = `
+      <h1 style="font-size:20px;margin-bottom:4px;">Laporan Pelaksanaan — ${esc(item.title)}</h1>
+      <p style="font-size:12px;color:#555;margin-bottom:16px;">Sumber: ${esc(item.source)} · Dicetak: ${esc(now)}</p>
+
+      <h2 style="font-size:14px;margin-top:16px;">Langkah yang Dikerjakan</h2>
+      <ol style="font-size:13px;line-height:1.6;">
+        ${plan.steps.map((s, i) => `<li>${caseObj.steps[i] ? '[✓] ' : '[ ] '}${esc(s)}</li>`).join('')}
+      </ol>
+
+      <h2 style="font-size:14px;margin-top:16px;">Bukti Pelaksanaan</h2>
+      ${caseObj.evidence.length
+        ? `<ul style="font-size:13px;line-height:1.6;">${caseObj.evidence.map(ev => `<li>${esc(ev.text)} <i style="color:#777;">(${new Date(ev.ts).toLocaleString()})</i></li>`).join('')}</ul>`
+        : `<p style="font-size:13px;color:#777;">Belum ada bukti tercatat.</p>`}
+
+      <h2 style="font-size:14px;margin-top:16px;">Risiko &amp; Estimasi Hasil</h2>
+      <p style="font-size:13px;">Risiko: <b>${esc(plan.risk)}</b> — ${esc(plan.estimate)}</p>
+
+      <h2 style="font-size:14px;margin-top:16px;">Syarat &amp; Ketentuan</h2>
+      <p style="font-size:13px;">${esc(plan.terms)}</p>
+
+      ${caseObj.outcome ? `<h2 style="font-size:14px;margin-top:16px;">Hasil Akhir</h2><p style="font-size:13px;">${esc(caseObj.outcome.status.toUpperCase())} — ${new Date(caseObj.outcome.ts).toLocaleString()}</p>` : ''}
+    `;
+    document.getElementById('printReport').innerHTML = html;
+    window.print();
+  }
+
+  function openCaseModal(id) {
+    state.openCaseId = id;
+    renderCaseModal();
+    switchCaseTab('alat');
+    const modal = document.getElementById('caseModal');
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+  }
+  function closeCaseModal() {
+    state.openCaseId = null;
+    const modal = document.getElementById('caseModal');
+    modal.style.display = 'none';
+    renderAllGrids(); // reflect progress chip changes on the cards
+  }
+
+  function renderPerformanceScore() {
+    const cases = Object.values(state.cases).filter(c => c.outcome);
+    const successCount = cases.filter(c => c.outcome.status === 'berhasil').length;
+    const failCount = cases.filter(c => c.outcome.status === 'gagal').length;
+    const total = cases.length;
+    const score = total ? Math.round((successCount / total) * 100) : null;
+
+    document.getElementById('perfScoreBig').textContent = score == null ? '—' : score + '%';
+    document.getElementById('perfTotalCases').textContent = Object.keys(state.cases).length;
+    document.getElementById('perfSuccessCount').textContent = successCount;
+    document.getElementById('perfFailCount').textContent = failCount;
+
+    const log = Object.entries(state.cases)
+      .filter(([, c]) => c.outcome)
+      .sort((a, b) => b[1].outcome.ts - a[1].outcome.ts)
+      .slice(0, 8);
+    const logEl = document.getElementById('perfLog');
+    logEl.innerHTML = log.length
+      ? log.map(([id, c]) => `
+        <div class="flex items-center justify-between gap-2 text-sm">
+          <span class="truncate">${esc(c.itemTitle || id)}</span>
+          <span class="font-mono text-xs ${c.outcome.status === 'berhasil' ? 'text-green' : 'text-red'} shrink-0">${c.outcome.status === 'berhasil' ? '✓' : '✕'} ${new Date(c.outcome.ts).toLocaleDateString()}</span>
+        </div>`).join('')
+      : `<p class="text-sm text-mute font-mono text-center py-2">Belum ada hasil yang dicatat.</p>`;
+  }
+
+  function tickCountdowns() {
+    document.querySelectorAll('[data-countdown]').forEach(el => {
+      const dl = Number(el.getAttribute('data-countdown'));
+      el.textContent = timeLeft(dl);
+    });
+  }
+
+  /* =========================================================
+     5. NAV
+  ========================================================= */
+  function buildNav() {
+    const desktop = document.getElementById('navDesktop');
+    const mobile = document.getElementById('navMobile');
+    desktop.innerHTML = TABS.map(t => navItemDesktop(t)).join('');
+    mobile.innerHTML = TABS.map(t => navItemMobile(t)).join('');
+    document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchTab(b.getAttribute('data-tab'))));
+  }
+  function navItemDesktop(t) {
+    const active = state.tab === t.id;
+    return `<button data-tab="${t.id}" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium tab-underline ${active ? `bg-panel2 text-${t.accent}` : 'text-mute hover:text-ink'}">
+      <span>${t.icon}</span><span>${t.label}</span>
+    </button>`;
+  }
+  function navItemMobile(t) {
+    const active = state.tab === t.id;
+    return `<button data-tab="${t.id}" class="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 ${active ? `text-${t.accent}` : 'text-mute'}">
+      <span class="text-lg leading-none">${t.icon}</span>
+      <span class="font-mono text-[10.5px] tracking-tight">${t.short}</span>
+    </button>`;
+  }
+  function switchTab(id) {
+    state.tab = id;
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    document.getElementById('tab-' + id).classList.remove('hidden');
+    const t = TABS.find(x => x.id === id);
+    document.getElementById('pageTitle').textContent = `${t.icon} ${t.label}`;
+    buildNav();
+  }
+
+  /* =========================================================
+     5.5 THEME — 3 skins, persisted per device
+  ========================================================= */
+  const THEME_CHOICES = ['dark', 'light', 'contrast'];
+  function applyTheme(theme) {
+    state.theme = THEME_CHOICES.includes(theme) ? theme : 'dark';
+    if (state.theme === 'dark') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', state.theme);
+    }
+    store.set(LS_KEYS.theme, state.theme);
+    renderThemeSwitcher();
+  }
+  function renderThemeSwitcher() {
+    document.querySelectorAll('[data-theme-choice]').forEach(btn => {
+      const active = btn.getAttribute('data-theme-choice') === state.theme;
+      btn.classList.toggle('border-flash', active);
+      btn.classList.toggle('border-line', !active);
+    });
+  }
+
+  function renderProfileInputs() {
+    const p = state.userProfile;
+    document.getElementById('profileNamaInput').value = p.nama;
+    document.getElementById('profileHobiInput').value = p.hobi;
+    document.getElementById('profileKebiasaanInput').value = p.kebiasaan;
+    document.getElementById('profileAlasanInput').value = p.alasan;
+  }
+
+  /* =========================================================
+     6. DATA LOADING (fetch + fallback)
+  ========================================================= */
+  // GitHub allows only 60 unauthenticated requests/hour per IP, and CoinGecko's
+  // free tier is similarly rate-limited — tapping "SYNC" repeatedly must not
+  // burn through that budget. Cache each live source for a few minutes.
+  async function cachedFetch(cacheKey, ttlMs, fetchFn) {
+    const cached = store.get(cacheKey, null);
+    if (cached && (Date.now() - cached.ts) < ttlMs) return { data: cached.data, fromCache: true };
+    const data = await fetchFn();
+    store.set(cacheKey, { ts: Date.now(), data });
+    return { data, fromCache: false };
+  }
+
+  async function loadAirdrops() {
+    let live = [];
+    try {
+      const { data } = await cachedFetch('hunter_cache_airdrops_v1', 3 * 60 * 1000, fetchLiveAirdropSignals);
+      live = data;
+    } catch (e) { console.warn('Live airdrop signal fetch failed, using demo data only:', e.message); }
+    state.data.airdrops = [...live, ...seedAirdrops()];
+    renderGrid('airdrops', 'amber');
+  }
+  async function loadBounties() {
+    let live = [];
+    try {
+      const { data } = await cachedFetch('hunter_cache_bounties_v1', 10 * 60 * 1000, fetchLiveSecurityFeed);
+      live = data;
+    } catch (e) { console.warn('Live security feed fetch failed, using demo data only:', e.message); }
+    state.data.bounties = [...live, ...seedBounties()];
+    renderGrid('bounties', 'cyan');
+  }
+  async function loadFastClaim() {
+    let live = [];
+    try {
+      if (supabaseClient) {
+        const { data } = await cachedFetch('hunter_cache_fastclaim_v1', 2 * 60 * 1000, fetchFastClaimFromSupabase);
+        live = data;
+      } else {
+        const { data } = await cachedFetch('hunter_cache_fastclaim_v1', 5 * 60 * 1000, fetchLiveFastClaim);
+        live = data;
+      }
+    } catch (e) { console.warn('Live Fast-Claim source unavailable (expected until Supabase or the Netlify Function is wired up), using demo data only:', e.message); }
+    state.data.fastclaim = [...live, ...seedFastClaim()];
+    renderGrid('fastclaim', fastClaimAccent);
+  }
+  async function loadAll() {
+    const icon = document.getElementById('refreshIcon');
+    icon.classList.add('animate-spin');
+    await loadPhishList();
+    await Promise.all([loadAirdrops(), loadBounties(), loadFastClaim()]);
+    icon.classList.remove('animate-spin');
+  }
+
+  /* =========================================================
+     7. EVENTS
+  ========================================================= */
+  document.addEventListener('click', (e) => {
+    const claim = e.target.closest('[data-action="claim"]');
+    if (claim) {
+      const id = claim.getAttribute('data-id');
+      const url = claim.getAttribute('data-url');
+      if (url) window.open(url, '_blank', 'noopener');
+      if (!state.claimed.includes(id)) {
+        state.claimed.push(id);
+        store.set(LS_KEYS.claimed, state.claimed);
+      }
+      renderAllGrids();
+      return;
+    }
+    const hide = e.target.closest('[data-action="hide"]');
+    if (hide) {
+      const id = hide.getAttribute('data-id');
+      if (!state.hidden.includes(id)) {
+        state.hidden.push(id);
+        store.set(LS_KEYS.hidden, state.hidden);
+      }
+      renderAllGrids();
+      return;
+    }
+    const toggleHidden = e.target.closest('[data-toggle-hidden]');
+    if (toggleHidden) {
+      const key = toggleHidden.getAttribute('data-toggle-hidden');
+      state.showHidden[key] = !state.showHidden[key];
+      toggleHidden.textContent = state.showHidden[key] ? 'hide shown items' : `show hidden (${state.data[key].filter(i => state.hidden.includes(i.id)).length})`;
+      renderGrid(key, key === 'fastclaim' ? fastClaimAccent : (key === 'airdrops' ? 'amber' : 'cyan'));
+      return;
+    }
+    const fcFilter = e.target.closest('[data-fc-filter]');
+    if (fcFilter) {
+      state.fastClaimFilter = fcFilter.getAttribute('data-fc-filter');
+      store.set(LS_KEYS.fcFilter, state.fastClaimFilter);
+      renderFastClaimFilters();
+      renderGrid('fastclaim', fastClaimAccent);
+      return;
+    }
+    const openCase = e.target.closest('[data-action="case"]');
+    if (openCase) {
+      openCaseModal(openCase.getAttribute('data-id'));
+      return;
+    }
+    const themeChoice = e.target.closest('[data-theme-choice]');
+    if (themeChoice) {
+      applyTheme(themeChoice.getAttribute('data-theme-choice'));
+      return;
+    }
+    const caseTabBtn = e.target.closest('[data-case-tab]');
+    if (caseTabBtn) {
+      switchCaseTab(caseTabBtn.getAttribute('data-case-tab'));
+      return;
+    }
+    if (e.target.id === 'caseDownloadPdfBtn') {
+      downloadCaseReport();
+      return;
+    }
+    if (e.target.id === 'caseCloseBtn' || e.target.id === 'caseModal') {
+      closeCaseModal();
+      return;
+    }
+    const outcomeBtn = e.target.closest('[data-outcome]');
+    if (outcomeBtn) {
+      const caseObj = getCase(state.openCaseId);
+      caseObj.outcome = { status: outcomeBtn.getAttribute('data-outcome'), ts: Date.now() };
+      saveCase(state.openCaseId, caseObj);
+      renderCaseModal();
+      renderPerformanceScore();
+      return;
+    }
+  });
+
+  document.addEventListener('change', (e) => {
+    const stepBox = e.target.closest('[data-step-idx]');
+    if (stepBox) {
+      const idx = Number(stepBox.getAttribute('data-step-idx'));
+      const caseObj = getCase(state.openCaseId);
+      caseObj.steps[idx] = stepBox.checked;
+      saveCase(state.openCaseId, caseObj);
+      renderCaseModal();
+      return;
+    }
+    const shippingField = e.target.closest('[data-shipping-field]');
+    if (shippingField) {
+      const updated = { ...state.shippingProfile, [shippingField.getAttribute('data-shipping-field')]: shippingField.value };
+      saveShippingProfile(updated);
+      return;
+    }
+    const profileField = e.target.closest('[data-profile-field]');
+    if (profileField) {
+      const updated = { ...state.userProfile, [profileField.getAttribute('data-profile-field')]: profileField.value };
+      saveUserProfile(updated);
+      return;
+    }
+  });
+
+  document.getElementById('caseEvidenceAddBtn').addEventListener('click', () => {
+    const input = document.getElementById('caseEvidenceInput');
+    const text = input.value.trim();
+    if (!text || !state.openCaseId) return;
+    const caseObj = getCase(state.openCaseId);
+    caseObj.evidence.push({ text, ts: Date.now() });
+    saveCase(state.openCaseId, caseObj);
+    input.value = '';
+    renderCaseModal();
+  });
+
+  // Pengingat lokal (Notification API bawaan browser) — bukan bot, hanya
+  // alarm menjelang waktu mulai supaya Anda yang klik beli sendiri tepat
+  // waktu.
+  document.addEventListener('click', async (e) => {
+    const notifyBtn = e.target.closest('#caseNotifyBtn');
+    if (notifyBtn) {
+      const deadline = Number(notifyBtn.getAttribute('data-deadline'));
+      const msUntilReminder = deadline - Date.now() - 5 * 60 * 1000;
+      if (msUntilReminder <= 0) { notifyBtn.textContent = '⏱ Waktunya sudah lewat 5 menit sebelum mulai'; return; }
+      if (!('Notification' in window)) { notifyBtn.textContent = '⚠️ Browser ini tidak mendukung notifikasi'; return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { notifyBtn.textContent = '⚠️ Izin notifikasi ditolak'; return; }
+      setTimeout(() => new Notification('⚡ 5 menit lagi!', { body: 'Bersiap — waktu mulai promo/klaim sudah dekat.' }), msUntilReminder);
+      notifyBtn.textContent = '✓ Pengingat aktif — jangan tutup tab ini';
+      notifyBtn.disabled = true;
+      return;
+    }
+    const creativeGen = e.target.closest('#creativeGenerateBtn');
+    if (creativeGen) {
+      const idea = document.getElementById('creativeIdeaInput').value.trim();
+      const status = document.getElementById('creativeStatus');
+      const output = document.getElementById('creativeDraftOutput');
+      if (!idea) { status.textContent = 'Isi poin-poin ide Anda dulu.'; return; }
+      status.textContent = 'Menghubungi AI…';
+      try {
+        const res = await fetch('/api/generate-draft', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'creative_contest', idea }),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        output.value = data.draft || '';
+        status.textContent = 'Draf dibuat — tetap edit sebelum dipakai.';
+      } catch (err) {
+        status.textContent = '⚠️ Fitur AI draf belum aktif di server ini (lihat api/generate-draft.js & README). Tulis draf manual dulu di kotak bawah.';
+      }
+      return;
+    }
+    const surveyGen = e.target.closest('#surveyGenerateBtn');
+    if (surveyGen) {
+      const p = state.userProfile;
+      const output = document.getElementById('surveyDraftOutput');
+      output.value = `Saya ${p.nama}, tertarik menjadi tester produk ini karena ${p.alasan || 'ingin mencoba produk baru'}. Saya terbiasa ${p.kebiasaan}, dan hobi saya yang berkaitan adalah ${p.hobi}. (Draf ini dari data yang Anda isi sendiri — edit agar sesuai kenyataan sebelum dikirim.)`;
+      return;
+    }
+  });
+
+  document.getElementById('refreshBtn').addEventListener('click', loadAll);
+  document.getElementById('clearLogsBtn').addEventListener('click', () => {
+    state.log = [];
+    store.set(LS_KEYS.log, state.log);
+    renderScamLog();
+  });
+
+  document.getElementById('toggleRewardCheck').addEventListener('click', function () {
+    state.settings.rewardCheck = !state.settings.rewardCheck;
+    this.classList.toggle('on', state.settings.rewardCheck);
+    store.set(LS_KEYS.settings, state.settings);
+    renderAllGrids();
+  });
+  document.getElementById('thresholdSlider').addEventListener('input', function () {
+    state.settings.threshold = Number(this.value);
+    document.getElementById('thresholdVal').textContent = this.value;
+    store.set(LS_KEYS.settings, state.settings);
+    renderAllGrids();
+  });
+
+  /* =========================================================
+     8. INIT
+  ========================================================= */
+  function init() {
+    document.getElementById('toggleRewardCheck').classList.toggle('on', state.settings.rewardCheck);
+    document.getElementById('thresholdSlider').value = state.settings.threshold;
+    document.getElementById('thresholdVal').textContent = state.settings.threshold;
+
+    buildNav();
+    renderFastClaimFilters();
+    renderPerformanceScore();
+    renderThemeSwitcher();
+    renderProfileInputs();
+    switchTab('airdrops');
+    loadAll();
+    setInterval(tickCountdowns, 1000);
+  }
+
+  init();
+
+  /* =========================================================
+     9. PWA — installable + works offline on the last sync
+  ========================================================= */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW registration failed:', e.message));
+    });
+  }
+})();
+</script>
+</body>
+</html>
